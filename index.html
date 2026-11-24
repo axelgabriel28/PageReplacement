@@ -3,86 +3,110 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Page Replacement Simulator</title>
-  <style>
-    body { max-width: 960px; margin: 32px auto; padding: 0 16px; font: 16px system-ui, sans-serif; color: #18243a; background: #f5f7fb; }
-    main { background: white; padding: 24px; border: 1px solid #dfe5ef; border-radius: 12px; }
-    h1 { margin-top: 0; }
-    label { display: block; margin: 16px 0 6px; font-weight: 600; }
-    input, select, button { box-sizing: border-box; padding: 10px; font: inherit; }
-    input { width: 100%; }
-    select { min-width: 180px; }
-    button { margin-left: 8px; color: white; background: #3b5bdb; border: 0; border-radius: 6px; cursor: pointer; }
-    button:disabled { background: #8994b7; cursor: wait; }
-    pre { overflow: auto; padding: 16px; background: #f4f6fa; border-radius: 8px; line-height: 1.4; }
-    #status { min-height: 1.5em; }
-    @media (max-width: 600px) { main { padding: 16px; } button { margin: 8px 0 0; display: block; } }
-  </style>
+  <title>Virtual Memory Lab · Page Replacement Simulator</title>
+  <link rel="stylesheet" href="simulator.css">
+  <script defer src="https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js"></script>
+  <script defer src="simulator.js"></script>
 </head>
 <body>
-  <main>
-    <h1>Page Replacement Simulator</h1>
-    <p>Run the repository's Python implementation of FIFO, LRU, and Optimal in your browser.</p>
-    <label for="references">Page reference string</label>
-    <input id="references" value="7 0 1 2 0 3 0 4 2 3 0 3 2 1 2 0 1 7 0 1">
-    <label for="frames">Number of frames</label>
-    <input id="frames" type="number" min="1" step="1" value="3">
-    <label for="algorithm">Algorithm</label>
-    <select id="algorithm">
-      <option value="all">Compare all</option>
-      <option>FIFO</option>
-      <option>LRU</option>
-      <option>Optimal</option>
-    </select>
-    <button id="run" disabled>Loading Python…</button>
-    <p id="status" role="status" aria-live="polite">Loading Python…</p>
-    <pre id="output" aria-label="Simulation results"></pre>
+  <header class="masthead">
+    <div class="shell masthead-row">
+      <span class="memory-mark" aria-hidden="true"></span>
+      <div class="title-block">
+        <h1>Virtual Memory Lab</h1>
+        <p>Page replacement simulator: FIFO, LRU and Optimal on one request sequence.</p>
+      </div>
+      <p id="engine" class="engine" data-state="loading" role="status">Engine loading</p>
+    </div>
+  </header>
+  <main class="shell workspace">
+    <section class="panel setup" aria-labelledby="setup-title">
+      <h2 id="setup-title">Setup</h2>
+      <form id="settings" novalidate>
+        <div class="field">
+          <label for="preset">Example</label>
+          <select id="preset">
+            <option value="classic">Roderick Workload</option>
+            <option value="belady">Jhe Ann Pages</option>
+            <option value="locality">Repeated pages</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div class="field field-wide">
+          <label for="references">Page reference string</label>
+          <textarea id="references" rows="3" required aria-describedby="references-error reference-help">7 0 1 2 0 3 0 4 2 3 0 3 2 1 2 0 1 7 0 1</textarea>
+          <p id="references-error" class="field-error" hidden></p>
+          <p id="reference-help" class="hint">Up to 500 nonnegative integers, separated by spaces, commas, or line breaks.</p>
+        </div>
+        <div class="field">
+          <label for="frames">Memory frames</label>
+          <input id="frames" type="number" min="1" max="64" step="1" value="3" required aria-describedby="frames-error frame-help">
+          <p id="frames-error" class="field-error" hidden></p>
+          <p id="frame-help" class="hint">1 to 64 frames.</p>
+        </div>
+        <div class="field">
+          <label for="algorithm">Algorithm</label>
+          <select id="algorithm">
+            <option value="all">Compare all</option>
+            <option value="FIFO">FIFO</option>
+            <option value="LRU">LRU</option>
+            <option value="Optimal">Optimal</option>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button class="primary" id="run" type="submit" disabled>Run simulation</button>
+          <button class="secondary" type="reset">Reset</button>
+        </div>
+      </form>
+      <p id="status" role="status"></p>
+      <p id="error" role="alert" hidden></p>
+    </section>
+    <section class="results" aria-labelledby="results-title">
+      <div class="results-heading">
+        <h2 id="results-title">Results</h2>
+        <p id="run-details" class="hint mono"></p>
+      </div>
+      <p id="stale" class="stale-banner" hidden>Inputs changed — re-run to update these results.</p>
+      <p id="empty" class="panel empty">Run a simulation to see page hits, faults, and frame contents.</p>
+      <div id="result-content" hidden>
+        <div id="summary" class="summary" role="group" aria-label="Choose an algorithm to inspect"></div>
+        <section class="panel stepper" aria-labelledby="stepper-title">
+          <div class="step-head">
+            <div class="step-details" role="status" aria-atomic="true">
+              <p class="step-meta">
+                <span id="stepper-title">Request stepper</span>
+                <span id="step-position" class="mono"></span>
+              </p>
+              <p class="step-request">
+                <span class="step-label">Page</span>
+                <strong id="step-page" class="mono"></strong>
+                <span id="step-outcome" class="badge"></span>
+              </p>
+              <p id="step-reason"></p>
+            </div>
+            <div class="stepper-controls">
+              <button class="secondary" id="previous-step" type="button" aria-disabled="true" aria-keyshortcuts="ArrowLeft">← Previous</button>
+              <button class="secondary" id="next-step" type="button" aria-disabled="true" aria-keyshortcuts="ArrowRight">Next →</button>
+            </div>
+          </div>
+          <h3 id="step-frames-title">Memory frames after this request</h3>
+          <dl id="step-frames" class="step-frames" aria-labelledby="step-frames-title"></dl>
+          <p class="hint key-hint">Tip: use the Left and Right arrow keys to step.</p>
+        </section>
+        <section class="panel trace" aria-labelledby="trace-title">
+          <div class="trace-heading">
+            <div>
+              <h3 id="trace-title">Frame trace</h3>
+              <p id="trace-count" class="hint"></p>
+            </div>
+            <label class="filter"><input id="faults-only" type="checkbox"> Faults only</label>
+          </div>
+          <div class="table-scroll" tabindex="0" role="region" aria-labelledby="trace-title">
+            <table id="trace-table"></table>
+          </div>
+        </section>
+      </div>
+    </section>
   </main>
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js"></script>
-  <script>
-    const runButton = document.getElementById('run');
-    const status = document.getElementById('status');
-    const output = document.getElementById('output');
-    let python;
-
-    async function load() {
-      try {
-        python = await loadPyodide();
-        const response = await fetch('./page_replacement.py');
-        if (!response.ok) throw new Error(`Could not load Python file (${response.status})`);
-        python.globals.set('source_code', await response.text());
-        python.runPython('sim = {"__name__": "page_replacement"}\nexec(source_code, sim)');
-        runButton.disabled = false;
-        runButton.textContent = 'Run simulation';
-        status.textContent = 'Ready.';
-      } catch (error) {
-        status.textContent = `Loading failed: ${error.message}`;
-      }
-    }
-
-    runButton.addEventListener('click', () => {
-      python.globals.set('reference_input', document.getElementById('references').value);
-      python.globals.set('frame_input', document.getElementById('frames').value);
-      python.globals.set('algorithm_input', document.getElementById('algorithm').value);
-      try {
-        output.textContent = python.runPython(`
-refs = sim['parse_reference_string'](reference_input)
-count = sim['validate_frames'](frame_input)
-if algorithm_input == 'all':
-    results = sim['run_all'](refs, count)
-    text = '\\n\\n'.join(sim['render_trace'](r) for r in results)
-    text += '\\n\\n' + sim['render_comparison'](results)
-else:
-    text = sim['render_trace'](sim['ALGORITHMS'][algorithm_input](refs, count))
-text
-`);
-        status.textContent = 'Simulation complete.';
-      } catch (error) {
-        output.textContent = '';
-        status.textContent = `Invalid input: ${error.message}`;
-      }
-    });
-    load();
-  </script>
 </body>
 </html>
